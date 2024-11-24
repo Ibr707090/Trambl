@@ -351,12 +351,6 @@ def check_process_status(message, process, ip, port, duration):
     # Remove the process from the active list after completion
     processes.pop(process.pid, None)
 
-    # Create the button markup for the response
-    markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    manual_button = KeyboardButton('Manual Mode')
-    auto_button = KeyboardButton('Auto Mode')
-    markup.add(manual_button, auto_button)
-
     # Send completion message to the user
     bot.reply_to(message, (
         f"✅ *Action completed successfully!* 🎉\n\n"
