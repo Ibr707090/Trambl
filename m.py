@@ -1,4 +1,4 @@
- import os
+import os
 import re
 import subprocess
 import threading
@@ -323,14 +323,21 @@ def handle_message(message):
         markup.add(stop_button)
 
         # Respond to the user that the action is starting
-        bot.reply_to(message, (
-            f"🔧 *Got it! Starting action...* 💥\n\n"
-            f"🌍 *Target IP:* `{ip}`\n"
-            f"🔌 *Port:* `{port}`\n"
-            f"⏳ *Duration:* `{duration} seconds`\n\n"
-            "Hang tight, action is being processed... ⚙️\n\n"
-            "_This bot was made by Ibr._"
-        ), parse_mode='Markdown', reply_markup=markup)
+        bot.reply_to(
+        message,
+        (
+        "✅ *Action Initiated Successfully!* 🚀\n\n"
+        "🌐 **Target Details:**\n"
+        f"   - 📡 *IP Address:* `{ip}`\n"
+        f"   - 🔗 *Port:* `{port}`\n"
+        f"   - ⏱️ *Duration:* `{duration} seconds`\n\n"
+        "⚙️ *Processing your request...*\n"
+        "Please wait while the action is carried out.\n\n"
+        "_Developed by Ibr._"
+        ),
+        parse_mode='Markdown',
+        reply_markup=markup,
+        )
 
         # Start the action
         run_action(user_id, message, ip, port, int(duration))
