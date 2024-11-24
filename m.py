@@ -316,7 +316,7 @@ def is_authorized(user_id):
 
 def run_action(user_id, message, ip, port, duration):
     # Generate random thread value
-    thread_value = random.randint(40, 80, 140)
+    thread_value = random.randint(40, 140)
 
     # Log the action
     logging.info(f"User {user_id} started action on IP {ip}, Port {port}, Duration {duration}s")
