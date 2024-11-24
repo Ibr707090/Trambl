@@ -112,43 +112,68 @@ def send_welcome(message):
         "🔐 *Authorized users only.*"
     )
     bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=markup)
-
+  
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    """Handle general messages and process actions."""
     user_id = message.from_user.id
-    if user_id not in AUTHORIZED_USERS and not is_authorized(user_id):
-        bot.reply_to(message, '⛔ *Unauthorized.* Send /auth to request access.', parse_mode='Markdown')
+    chat_type = message.chat.type
+
+    # Skip authorization check if the user is in the AUTHORIZED_USERS list
+    if chat_type == 'private' and user_id not in AUTHORIZED_USERS and not is_authorized(user_id):
+        bot.reply_to(message, '⛔ *You are not authorized to use this bot.* Please send /auth to request access. 🤔\n\n_This bot was made by Ibr._', parse_mode='Markdown')
         return
 
- # Mode selection handler
-@bot.message_handler(func=lambda message: message.text in ['Manual Mode', 'Auto Mode'])
-def set_mode(message):
-    user_id = message.from_user.id
-    selected_mode = message.text.lower().split()[0]  # 'manual' or 'auto'
-    
-    # Update the user's mode
-    user_modes[user_id] = selected_mode
-    bot.reply_to(message, f"🔄 *Mode switched to {selected_mode.capitalize()} Mode!*")
-    
-# Command to show the list of active users and actions (admin only)
-@bot.message_handler(commands=['list_active'])
-def list_active_users(message):
-    user_id = message.from_user.id
-    if user_id not in AUTHORIZED_USERS:
-        bot.reply_to(message, "⛔ You are not authorized to view the active users.", parse_mode='Markdown')
-        return
+    text = message.text.strip()
 
-    if not active_users:
-        bot.reply_to(message, "⚠️ No active users at the moment.", parse_mode='Markdown')
-        return
+    # Regex to match "<ip> <port> <duration>"
+    match = re.match(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})", text)
 
-    active_list = "🟢 *Active Users and Actions:*\n"
-    for uid, info in active_users.items():
-        action = info.get("action", "Unknown action")
-        active_list += f"👤 User: {info['username']} (ID: {uid})\n🔹 Action: {action}\n\n"
+    if match:
+        ip, port, duration = match.groups()
 
-    bot.reply_to(message, active_list, parse_mode='Markdown')
+        # Validate IP, Port, and Duration
+        if not is_valid_ip(ip):
+            bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
+        if not is_valid_port(port):
+            bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
+        if not is_valid_duration(duration):
+            bot.reply_to(message, "❌ *Invalid Duration!* The duration must be between 1 and 600 seconds.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
+
+        # Respond to the user that the action is starting
+        bot.reply_to(
+        message,
+        (
+        "✅ *Action Initiated Successfully!* 🚀\n\n"
+        "🌐 **Target Details:**\n"
+        f"   - 📡 *IP Address:* `{ip}`\n"
+        f"   - 🔗 *Port:* `{port}`\n"
+        f"   - ⏱️ *Duration:* `{duration} seconds`\n\n"
+        "⚙️ *Processing your request...*\n"
+        "Please wait while the action is carried out.\n\n"
+        "_Developed by Ibr._"
+        ),
+        parse_mode='Markdown',
+        reply_markup=markup,
+        )
+
+        # Start the action
+        run_action(user_id, message, ip, port, int(duration))
+    else:
+          bot.reply_to(
+          message,
+          (
+         "🚨 *Error !* Your input format seems incorrect.\n\n"
+         "📌 *Correct Format:* \n"
+         "`<ip> <port> <duration>`\n\n"
+         "💡 *Example:* \n"
+         "`10.0.0.1 43352 5`\n\n"
+         "⏳ This will trigger an action on IP `10.0.0.1` via port `43352` for `5 seconds`.\n\n"
+         "_🤖 Powered by Ibr's Bot._"
+         ),
+         parse_mode='Markdown')
 
 @bot.message_handler(commands=['approve'])
 def approve_user(message):
@@ -288,72 +313,6 @@ def is_authorized(user_id):
             return True
         actions_collection.update_one({'user_id': user_id}, {'$set': {'status': 'expired'}})
     return False
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    user_id = message.from_user.id
-    chat_type = message.chat.type
-
-    # Skip authorization check if the user is in the AUTHORIZED_USERS list
-    if chat_type == 'private' and user_id not in AUTHORIZED_USERS and not is_authorized(user_id):
-        bot.reply_to(message, '⛔ *You are not authorized to use this bot.* Please send /auth to request access. 🤔\n\n_This bot was made by Ibr._', parse_mode='Markdown')
-        return
-
-    text = message.text.strip()
-
-    # Regex to match "<ip> <port> <duration>"
-    match = re.match(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})", text)
-
-    if match:
-        ip, port, duration = match.groups()
-
-        # Validate IP, Port, and Duration
-        if not is_valid_ip(ip):
-            bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-            return
-        if not is_valid_port(port):
-            bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-            return
-        if not is_valid_duration(duration):
-            bot.reply_to(message, "❌ *Invalid Duration!* The duration must be between 1 and 600 seconds.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-            return
-
-        # Show the stop action button
-        markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        stop_button = KeyboardButton('Stop Action')
-        markup.add(stop_button)
-
-        # Respond to the user that the action is starting
-        bot.reply_to(
-        message,
-        (
-        "✅ *Action Initiated Successfully!* 🚀\n\n"
-        "🌐 **Target Details:**\n"
-        f"   - 📡 *IP Address:* `{ip}`\n"
-        f"   - 🔗 *Port:* `{port}`\n"
-        f"   - ⏱️ *Duration:* `{duration} seconds`\n\n"
-        "⚙️ *Processing your request...*\n"
-        "Please wait while the action is carried out.\n\n"
-        "_Developed by Ibr._"
-        ),
-        parse_mode='Markdown',
-        reply_markup=markup,
-        )
-
-        # Start the action
-        run_action(user_id, message, ip, port, int(duration))
-    else:
-          bot.reply_to(
-          message,
-          (
-         "🚨 *Error !* Your input format seems incorrect.\n\n"
-         "📌 *Correct Format:* \n"
-         "`<ip> <port> <duration>`\n\n"
-         "💡 *Example:* \n"
-         "`10.0.0.1 43352 5`\n\n"
-         "⏳ This will trigger an action on IP `10.0.0.1` via port `43352` for `5 seconds`.\n\n"
-         "_🤖 Powered by Ibr's Bot._"
-         ),
-         parse_mode='Markdown')
 
 
 def run_action(user_id, message, ip, port, duration):
