@@ -317,21 +317,28 @@ def is_authorized(user_id):
 def run_action(user_id, message, ip, port, duration):
     # Generate random thread value
     thread_value = random.randint(500, 800)
-
+    bot.reply_to(message, f"🎉 *Found order in {thread_value}ms", parse_mode='Markdown')
     # Log the action
     logging.info(f"User {user_id} started action on IP {ip}, Port {port}, Duration {duration}s")
 
     # Build the full command
     full_command = f"./action {ip} {port} {duration}"
-
     process = subprocess.run(full_command, shell=True)
-        # Run the action command in a non-blocking way
+    # Send completion message to the user
+    bot.reply_to(message, (
+        f"✅ *Action completed successfully!* 🎉\n\n"
+        f"🌐 *Target IP:* `{ip}`\n"
+        f"🔌 *Port:* `{port}`\n"
+        f"⏱ *Duration:* `{duration} seconds`\n\n"
+        "💡 *Need more help?* Just send me another request, I'm here to assist! 🤗\n\n"
+        "_This bot was made by Ibr._"
+    ), parse_mode='Markdown',)
+            # Run the action command in a non-blocking way
     # Start the action command as a non-blocking subprocess
     #process = subprocess.Popen(full_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     processes[process.pid] = process
     # Notify the user about the action start
-    bot.reply_to(message, f"🎉 *Socket Connected in {thread_value}ms", parse_mode='Markdown')
-
+    
     # Run the process monitor in a separate thread
     threading.Thread(target=check_process_status, args=(message, process, ip, port, duration)).start()
 
@@ -351,15 +358,7 @@ def check_process_status(message, process, ip, port, duration):
     # Remove the process from the active list after completion
     processes.pop(process.pid, None)
 
-    # Send completion message to the user
-    bot.reply_to(message, (
-        f"✅ *Action completed successfully!* 🎉\n\n"
-        f"🌐 *Target IP:* `{ip}`\n"
-        f"🔌 *Port:* `{port}`\n"
-        f"⏱ *Duration:* `{duration} seconds`\n\n"
-        "💡 *Need more help?* Just send me another request, I'm here to assist! 🤗\n\n"
-        "_This bot was made by Ibr._"
-    ), parse_mode='Markdown', reply_markup=markup)
+
 
 def stop_all_actions(message):
     if processes:
