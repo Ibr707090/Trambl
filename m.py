@@ -156,7 +156,6 @@ def handle_message(message):
         "_Developed by Ibr._"
         ),
         parse_mode='Markdown',
-        reply_markup=markup,
         )
 
         # Start the action
