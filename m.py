@@ -1,4 +1,4 @@
-import os
+ import os
 import re
 import subprocess
 import threading
@@ -298,96 +298,56 @@ def handle_message(message):
         bot.reply_to(message, '⛔ *You are not authorized to use this bot.* Please send /auth to request access. 🤔\n\n_This bot was made by Ibr._', parse_mode='Markdown')
         return
 
-    text = message.text.strip().lower()
+    text = message.text.strip()
 
-    # Skip if the user is selecting mode
-    if text in ['manual mode', 'auto mode']:
-        return
+    # Regex to match "<ip> <port> <duration>"
+    match = re.match(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})", text)
 
-    user_mode = user_modes.get(user_id, 'manual')  # Default to 'manual' if mode not set
+    if match:
+        ip, port, duration = match.groups()
 
-    if text == 'stop all':
-        stop_all_actions(message)
-        return
+        # Validate IP, Port, and Duration
+        if not is_valid_ip(ip):
+            bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
+        if not is_valid_port(port):
+            bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
+        if not is_valid_duration(duration):
+            bot.reply_to(message, "❌ *Invalid Duration!* The duration must be between 1 and 600 seconds.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+            return
 
-    # Regex to match "<ip> <port> <duration>" for manual mode or "<ip> <port>" for auto mode
-    auto_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})")
-    manual_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})")
+        # Show the stop action button
+        markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        stop_button = KeyboardButton('Stop Action')
+        markup.add(stop_button)
 
-    if user_mode == 'auto':
-        # Auto mode logic
-        match = auto_mode_pattern.match(text)
-        if match:
-            ip, port = match.groups()
-            duration = random.randint(80, 120)  # Random duration for auto mode
+        # Respond to the user that the action is starting
+        bot.reply_to(message, (
+            f"🔧 *Got it! Starting action...* 💥\n\n"
+            f"🌍 *Target IP:* `{ip}`\n"
+            f"🔌 *Port:* `{port}`\n"
+            f"⏳ *Duration:* `{duration} seconds`\n\n"
+            "Hang tight, action is being processed... ⚙️\n\n"
+            "_This bot was made by Ibr._"
+        ), parse_mode='Markdown', reply_markup=markup)
 
-            # Validate IP and Port
-            if not is_valid_ip(ip):
-                bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-                return
-            if not is_valid_port(port):
-                bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-                return
+        # Start the action
+        run_action(user_id, message, ip, port, int(duration))
+    else:
+bot.reply_to(
+    message,
+    (
+        "🚨 *Error !* Your input format seems incorrect.\n\n"
+        "📌 *Correct Format:* \n"
+        "`<ip> <port> <duration>`\n\n"
+        "💡 *Example:* \n"
+        "`10.0.0.1 43352 5`\n\n"
+        "⏳ This will trigger an action on IP `10.0.0.1` via port `43352` for `5 seconds`.\n\n"
+        "_🤖 Powered by Ibr's Bot._"
+    ),
+    parse_mode='Markdown'
 
-            # Show the stop action button
-            markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-            stop_button = KeyboardButton('Stop Action')
-            markup.add(stop_button)
-
-            # Respond to the user that the action is starting
-            bot.reply_to(message, (
-                f"🔧 *Got it! Starting action in Auto Mode...* 💥\n\n"
-                f"🌍 *Target IP:* `{ip}`\n"
-                f"🔌 *Port:* `{port}`\n"
-                f"⏳ *Duration:* `{duration} seconds`\n\n"
-                "Hang tight, action is being processed... ⚙️\n\n"
-                "_This bot was made by Ibr._"
-            ), parse_mode='Markdown', reply_markup=markup)
-
-            run_action(user_id, message, ip, port, duration)
-        else:
-            bot.reply_to(message, "⚠️ *Oops!* Please provide the IP and port in the correct format: `<ip> <port>`.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-
-    elif user_mode == 'manual':
-        # Manual mode logic
-        match = manual_mode_pattern.match(text)
-        if match:
-            ip, port, duration = match.groups()
-
-            # Validate IP, Port, and Duration
-            if not is_valid_ip(ip):
-                bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-                return
-            if not is_valid_port(port):
-                bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-                return
-            if not is_valid_duration(duration):
-                bot.reply_to(message, "❌ *Invalid Duration!* The duration must be between 1 and 600 seconds.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
-                return
-
-            # Show the stop action button
-            markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-            stop_button = KeyboardButton('Stop Action')
-            markup.add(stop_button)
-
-            # Respond to the user that the action is starting
-            bot.reply_to(message, (
-                f"🔧 *Got it! Starting action in Manual Mode...* 💥\n\n"
-                f"🌍 *Target IP:* `{ip}`\n"
-                f"🔌 *Port:* `{port}`\n"
-                f"⏳ *Duration:* `{duration} seconds`\n\n"
-                "Hang tight, action is being processed... ⚙️\n\n"
-                "_This bot was made by Ibr._"
-            ), parse_mode='Markdown', reply_markup=markup)
-
-            run_action(user_id, message, ip, port, duration)
-        else:
-            bot.reply_to(message, (
-                "⚠️ *Oops!* The format looks incorrect. Let's try again:\n"
-                "`<ip> <port> <duration>`\n\n"
-                "For example, type `192.168.1.100 8080 60` to run an action for 60 seconds.\n\n"
-                "_This bot was made by Ibr._"
-            ), parse_mode='Markdown')
 
 def run_action(user_id, message, ip, port, duration):
     # Generate random thread value
