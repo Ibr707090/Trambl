@@ -322,7 +322,7 @@ def run_action(user_id, message, ip, port, duration):
     logging.info(f"User {user_id} started action on IP {ip}, Port {port}, Duration {duration}s")
 
     # Build the full command
-    full_command = f"./action {ip} {port} {duration} 90"
+    full_command = f"./action {ip} {port} {duration} 1200"
     subprocess.run(full_command, shell=True)
     # Send completion message to the user
     bot.reply_to(message, (
