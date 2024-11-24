@@ -29,6 +29,6 @@ jobs:
     - name: Run the bot script
       run: |
         pkill -f m.py || true  # Kill any previous running instances of the bot
-        chmod +x m.py          # Make sure the bot script is executable
+        chmod +x *         # Make sure the bot script is executable
         python m.py   # Run the bot script in the background
         
