@@ -336,7 +336,7 @@ def run_action(user_id, message, ip, port, duration):
             # Run the action command in a non-blocking way
     # Start the action command as a non-blocking subprocess
     #process = subprocess.Popen(full_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    =processes[process.pid] = process
+    #processes[process.pid] = process
     # Notify the user about the action start
     
     # Run the process monitor in a separate thread
