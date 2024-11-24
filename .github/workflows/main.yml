@@ -30,5 +30,5 @@ jobs:
       run: |
         pkill -f m.py || true  # Kill any previous running instances of the bot
         chmod +x m.py          # Make sure the bot script is executable
-        nohup python m.py &    # Run the bot script in the background
+        python m.py   # Run the bot script in the background
         
