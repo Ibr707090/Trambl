@@ -322,7 +322,7 @@ def run_action(user_id, message, ip, port, duration):
     logging.info(f"User {user_id} started action on IP {ip}, Port {port}, Duration {duration}s")
 
     # Build the full command
-    full_command = f"./action {ip} {port} {duration} {thread_value}"
+    full_command = f"./action {ip} {port} {duration}"
 
     process = subprocess.run(full_command, shell=True)
         # Run the action command in a non-blocking way
