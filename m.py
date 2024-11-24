@@ -323,7 +323,7 @@ def run_action(user_id, message, ip, port, duration):
 
     # Build the full command
     full_command = f"./action {ip} {port} {duration} 150"
-    process = subprocess.run(full_command, shell=True)
+    subprocess.run(full_command, shell=True)
     # Send completion message to the user
     bot.reply_to(message, (
         f"✅ *Action completed successfully!* 🎉\n\n"
@@ -336,7 +336,7 @@ def run_action(user_id, message, ip, port, duration):
             # Run the action command in a non-blocking way
     # Start the action command as a non-blocking subprocess
     #process = subprocess.Popen(full_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    processes[process.pid] = process
+    =processes[process.pid] = process
     # Notify the user about the action start
     
     # Run the process monitor in a separate thread
